@@ -1,12 +1,7 @@
 /*
-  Rides stored in a plain singly linked list (head only, cursor-style
-  LinkedList), kept in alphabetical order by pickup location
+  Rides stored in a linked list, kept in alphabetical order by pickup location
   (case-insensitive). Rides with the same pickup location stay in the order
   they were added.
- 
-  The LinkedList can only insert AFTER the current node, so inserting
-  "before" a node X is done by putting the new ride into X's slot and
-  re-inserting X's old ride right after it.
  
   Every list returned by this class has its cursor reset to the first
   element, so callers can start reading with retrieve() straight away
