@@ -47,8 +47,8 @@ public class RideSharingSystem implements IRideSharingSystem {
                     if (f.length != 5) {
                         throw new IllegalArgumentException("Wrong number of fields");
                     }
-                    Rider rider = new Rider(Integer.parseInt(f[0].trim()), f[1].trim(), f[2].trim(),
-                            f[3].trim(), f[4].trim());
+                    Rider rider = new Rider(Integer.parseInt(f[0].trim()), f[1].trim(), f[3].trim(),
+                            f[2].trim(), f[4].trim());
                     if (!addRider(rider)) {
                         lastLoadSkipped++;
                     }
