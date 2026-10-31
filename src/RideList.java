@@ -1,11 +1,21 @@
 /*
-  Linked list of rides kept in alphabetical order by pickup location
+  Rides stored in a plain singly linked list (head only, cursor-style
+  LinkedList), kept in alphabetical order by pickup location
   (case-insensitive). Rides with the same pickup location stay in the order
   they were added.
+ 
+  The LinkedList can only insert AFTER the current node, so inserting
+  "before" a node X is done by putting the new ride into X's slot and
+  re-inserting X's old ride right after it.
+ 
+  Every list returned by this class has its cursor reset to the first
+  element, so callers can start reading with retrieve() straight away
+  (check empty() first).
  */
 public class RideList implements IRideList {
 
     private final LinkedList<IRide> rides = new LinkedList<>();
+    private int count = 0; // the LinkedList has no size(), so we keep our own count
 
     /*
       Inserts a ride in alphabetical position. Returns false if the ride is
@@ -16,50 +26,99 @@ public class RideList implements IRideList {
         if (ride == null) {
             return false;
         }
-        LinkedList.Node<IRide> insertAfter = null;
-        for (LinkedList.Node<IRide> cur = rides.getHead(); cur != null; cur = cur.getNext()) {
-            if (cur.getData().getRideId() == ride.getRideId()) {
+        if (rides.empty()) {
+            rides.insert(ride);
+            count++;
+            return true;
+        }
+
+        // Pass 1: reject a duplicate ride ID.
+        rides.findFirst();
+        while (true) {
+            if (rides.retrieve().getRideId() == ride.getRideId()) {
                 return false;
             }
-            if (cur.getData().compareTo(ride) <= 0) {
-                insertAfter = cur; // keep going after equal locations (stable)
+            if (rides.last()) {
+                break;
             }
+            rides.findNext();
         }
-        rides.insertAfter(insertAfter, ride);
+
+        // Pass 2: find the first ride that sorts after the new one.
+        rides.findFirst();
+        while (true) {
+            IRide existing = rides.retrieve();
+            if (existing.compareTo(ride) > 0) {
+                rides.update(ride);     // new ride takes this slot 
+                rides.insert(existing); // and the old one goes right after it
+                break;
+            }
+            if (rides.last()) {         // nothing sorts after it: append at the end
+                rides.insert(ride);
+                break;
+            }
+            rides.findNext();
+        }
+        count++;
         return true;
     }
 
+    /* Removes the ride with the given ride ID; returns true if it was found. O(n). */
     @Override
     public boolean removeRideById(int rideId) {
-        LinkedList.Node<IRide> prev = null;
-        for (LinkedList.Node<IRide> cur = rides.getHead(); cur != null; cur = cur.getNext()) {
-            if (cur.getData().getRideId() == rideId) {
-                rides.removeAfter(prev);
+        if (rides.empty()) {
+            return false;
+        }
+        rides.findFirst();
+        while (true) {
+            if (rides.retrieve().getRideId() == rideId) {
+                rides.remove();
+                count--;
                 return true;
             }
-            prev = cur;
+            if (rides.last()) {
+                return false;
+            }
+            rides.findNext();
         }
-        return false;
     }
 
-    /* Returns a copy of the list in alphabetical order. O(n). */
+    /* Returns a copy of all rides in alphabetical order. O(n). */
     @Override
     public LinkedList<IRide> getAllAlphabetically() {
         LinkedList<IRide> result = new LinkedList<>();
-        for (LinkedList.Node<IRide> cur = rides.getHead(); cur != null; cur = cur.getNext()) {
-            result.addLast(cur.getData());
+        if (!rides.empty()) {
+            rides.findFirst();
+            while (true) {
+                result.insert(rides.retrieve()); // insert appends after the cursor, keeping order
+                if (rides.last()) {
+                    break;
+                }
+                rides.findNext();
+            }
         }
+        result.findFirst();
         return result;
     }
 
+    /* Rides whose pickup location equals the given one (ignoring case). O(n). */
     @Override
     public LinkedList<IRide> findByPickupLocation(String pickupLocation) {
         LinkedList<IRide> result = new LinkedList<>();
-        for (LinkedList.Node<IRide> cur = rides.getHead(); cur != null; cur = cur.getNext()) {
-            if (cur.getData().getPickupLocation().equalsIgnoreCase(pickupLocation)) {
-                result.addLast(cur.getData());
+        if (!rides.empty()) {
+            rides.findFirst();
+            while (true) {
+                IRide ride = rides.retrieve();
+                if (ride.getPickupLocation().equalsIgnoreCase(pickupLocation)) {
+                    result.insert(ride);
+                }
+                if (rides.last()) {
+                    break;
+                }
+                rides.findNext();
             }
         }
+        result.findFirst();
         return result;
     }
 
@@ -67,11 +126,20 @@ public class RideList implements IRideList {
     @Override
     public LinkedList<IRide> findByRiderName(String riderFullName) {
         LinkedList<IRide> result = new LinkedList<>();
-        for (LinkedList.Node<IRide> cur = rides.getHead(); cur != null; cur = cur.getNext()) {
-            if (involvesRiderNamed(cur.getData(), riderFullName)) {
-                result.addLast(cur.getData());
+        if (!rides.empty()) {
+            rides.findFirst();
+            while (true) {
+                IRide ride = rides.retrieve();
+                if (involvesRiderNamed(ride, riderFullName)) {
+                    result.insert(ride);
+                }
+                if (rides.last()) {
+                    break;
+                }
+                rides.findNext();
             }
         }
+        result.findFirst();
         return result;
     }
 
@@ -83,17 +151,26 @@ public class RideList implements IRideList {
         }
         if (ride instanceof ISharedRide) {
             LinkedList<IRider> participants = ((ISharedRide) ride).getParticipants();
-            for (LinkedList.Node<IRider> n = participants.getHead(); n != null; n = n.getNext()) {
-                if (n.getData().getName().equals(name)) {
+            if (participants.empty()) {
+                return false;
+            }
+            participants.findFirst();
+            while (true) {
+                if (participants.retrieve().getName().equals(name)) {
                     return true;
                 }
+                if (participants.last()) {
+                    return false;
+                }
+                participants.findNext();
             }
         }
         return false;
     }
 
+    /* Number of rides stored. O(1). */
     @Override
     public int size() {
-        return rides.size();
+        return count;
     }
 }
