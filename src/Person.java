@@ -1,9 +1,10 @@
 public abstract class Person implements IPerson
 {
     private final int id;
-    private String name;
+    private final String name;
     private String phoneNumber;
-    private LinkedList<IRide> rideHistory;
+    private IBST<ITimeSlot, IRide> schedule;
+
 
     // Constructor
     public Person(int id, String name, String phoneNumber)
@@ -12,7 +13,7 @@ public abstract class Person implements IPerson
         this.name = name;
 
         setPhoneNumber(phoneNumber); // to validate format
-        this.rideHistory = new LinkedList<IRide>();
+        this.schedule = new BST<ITimeSlot, IRide>();
     }
 
     public int getId()
@@ -23,11 +24,6 @@ public abstract class Person implements IPerson
     public String getName()
     {
         return name;
-    }
-
-    public void setName(String name)
-    {
-        this.name = name;
     }
 
     public String getPhoneNumber()
@@ -45,9 +41,10 @@ public abstract class Person implements IPerson
         this.phoneNumber = phoneNumber;
     }
 
-    public LinkedList<IRide> getRideHistory()
+    // The rides of this person, keyed by time slot
+    public IBST<ITimeSlot, IRide> getSchedule()
     {
-        return rideHistory;
+        return schedule;
     }
 
     public abstract String toString();
