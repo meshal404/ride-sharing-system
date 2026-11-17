@@ -1,9 +1,9 @@
 public class Rider extends Person implements IRider
 {
-    private String email;
-    private String homeCity;
+    private final String email;
+    private final String homeCity;
 
-    public Rider(int id, String name, String phone, String email, String homeCity)
+    public Rider(int id, String name, String email, String phone, String homeCity)
     {
         super(id, name, phone);
         this.email = email;
@@ -18,16 +18,6 @@ public class Rider extends Person implements IRider
     public String getHomeCity()
     {
         return homeCity;
-    }
-
-    public void setEmail(String email)
-    {
-        this.email = email;
-    }
-
-    public void setHomeCity(String homeCity)
-    {
-        this.homeCity = homeCity;
     }
 
     public int compareTo(IRider other)
