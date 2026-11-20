@@ -1,3 +1,5 @@
+import java.io.IOException;
+
 /**
  * The Ride-Sharing System (Phase 2). All data is stored in the nine BST
  * indexes below. This class never prints; all input and output is in Main.
@@ -28,36 +30,134 @@ public class RideSharingSystem implements IRideSharingSystem {
     private int nextRideId = 1;
 
     /** Creates an empty system. */
-    public RideSharingSystem() {
-    }
+    public RideSharingSystem() {}
 
     // ================================================================ PERSON A: riders
-    public int loadRidersFromCSV(String ridersFilePath) {
-        throw new UnsupportedOperationException("TODO (Person A): loadRidersFromCSV");
+    public int loadRidersFromCSV(String ridersFilePath) 
+    {
+        String[][] rows;
+
+        try 
+        {
+            rows = CsvHelper.readRows(ridersFilePath);
+        } 
+        catch (IOException e) 
+        {
+            return -1; // file cannot be opened
+        }
+
+        int loaded = 0;
+
+        for (int i = 0; i < rows.length; i++) 
+        {
+            String[] f = rows[i];
+
+            // layout: id, firstName, lastName, email, phoneNumber, homeCity
+            if (f.length < 6)
+                continue; // not correct, skip it
+
+            try 
+            {
+                String fullName = f[1] + " " + f[2];
+                IRider rider = new Rider(Integer.parseInt(f[0]), fullName, f[3], f[4], f[5]);
+
+                if (addRider(rider))
+                    loaded++; // duplicate IDs are skipped
+            } 
+            catch (IllegalArgumentException e) 
+            {
+                // covers bad IDs and an invalid phone 
+            }
+        }
+
+        return loaded;
     }
 
-    public boolean addRider(IRider rider) {
-        throw new UnsupportedOperationException("TODO (Person A): addRider");
+    public boolean addRider(IRider rider) 
+    {
+        // Check uniqueness first so a rejected rider is not left in any index
+        if (rider == null || ridersById.findKey(rider.getId()))
+            return false;
+
+        ridersById.insert(rider.getId(), rider);
+        IndexHelper.addToIndex(ridersByName, rider.getName(), rider.getId(), rider);
+        IndexHelper.addToIndex(ridersByCity, rider.getHomeCity(), rider.getId(), rider);
+
+        return true;
     }
 
-    public IRider searchRiderById(int riderId) {
-        throw new UnsupportedOperationException("TODO (Person A): searchRiderById");
+    public IRider searchRiderById(int riderId) 
+    {
+        if(ridersById.findKey(riderId))
+            return ridersById.retrieve();
+
+        return null; //not found
     }
 
-    public LinkedList<IRider> searchRidersByName(String fullName) {
-        throw new UnsupportedOperationException("TODO (Person A): searchRidersByName");
+    public LinkedList<IRider> searchRidersByName(String fullName) 
+    {
+        return IndexHelper.getAll(ridersByName, fullName);
     }
 
-    public LinkedList<IRider> searchRidersByHomeCity(String homeCity) {
-        throw new UnsupportedOperationException("TODO (Person A): searchRidersByHomeCity");
+    public LinkedList<IRider> searchRidersByHomeCity(String homeCity) 
+    {
+        return IndexHelper.getAll(ridersByCity, homeCity);
     }
 
-    public LinkedList<IRider> getAllRiders() {
-        throw new UnsupportedOperationException("TODO (Person A): getAllRiders");
+    public LinkedList<IRider> getAllRiders() 
+    {
+        return ridersById.inOrder();
     }
 
-    public boolean removeRider(int riderId) {
-        throw new UnsupportedOperationException("TODO (Person A): removeRider");
+    public boolean removeRider(int riderId) 
+    {
+        if(!ridersById.findKey(riderId))
+            return false;
+
+        IRider rider = ridersById.retrieve();
+
+        // inOrder() returns a new linkedlist, it's safe to change the rider's schedule BST
+        LinkedList<IRide> rides = rider.getSchedule().inOrder();
+
+        if(!rides.empty())
+        {
+            rides.findFirst();
+
+            while(true)
+            {
+                IRide ride = rides.retrieve();
+                
+                if(ride instanceof ISharedRide)
+                {
+                    ISharedRide shared = (ISharedRide)ride;
+
+                    // Take the rider out of the shared ride and out of their own schedule
+                    shared.removeParticipantById(riderId);
+                    rider.getSchedule().removeKey(shared.getTimeSlot());
+
+                    // A shared ride left with no riders is deleted everywhere
+                    if(shared.isEmpty())
+                        cancelRide(shared.getRideId());
+
+                }
+
+                else
+                    cancelRide(ride.getRideId());
+
+                if(rides.last())
+                    break;
+
+                rides.findNext();
+                
+            }
+        }
+
+        // Remove the rider from all three rider indexes
+        IndexHelper.removeFromIndex(ridersByName, rider.getName(), riderId);
+        IndexHelper.removeFromIndex(ridersByCity, rider.getHomeCity(), riderId);
+        ridersById.removeKey(riderId);
+
+        return true;
     }
 
     // ================================================================ PERSON B: rides
