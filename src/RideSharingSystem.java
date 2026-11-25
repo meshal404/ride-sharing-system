@@ -527,44 +527,264 @@ public class RideSharingSystem implements IRideSharingSystem {
         return result;
     }
 
+
+
     // ============================================== PERSON C: drivers and statistics
+
+    // Adds a driver to all three driver indexes.
+    private void indexDriver(IDriver driver) {
+        driversById.insert(driver.getId(), driver);
+
+        // Vehicle plate is a regular BST index.
+        driversByPlate.insert(driver.getVehiclePlate(), driver);
+
+        // Vehicle type is a nested BST index.
+        IndexHelper.addToIndex(
+            driversByType,
+            driver.getVehicleType(),
+            driver.getId(),
+            driver
+        );
+    }
+
+    // Removes a driver from all three driver indexes.
+    private void unindexDriver(IDriver driver) {
+        driversById.removeKey(driver.getId());
+
+        // Remove directly from the regular BST.
+        driversByPlate.removeKey(driver.getVehiclePlate());
+
+        // Remove from the nested BST.
+        IndexHelper.removeFromIndex(
+            driversByType,
+            driver.getVehicleType(),
+            driver.getId()
+        );
+    }
+
+    // Loads drivers from a CSV file.
+    // CSV format: driverId,name,phoneNumber,vehiclePlate,vehicleType
     public int loadDriversFromCSV(String driversFilePath) {
-        throw new UnsupportedOperationException("TODO (Person C): loadDriversFromCSV");
+        String[][] rows;
+
+        try {
+            rows = CsvHelper.readRows(driversFilePath);
+        } catch (IOException e) {
+            return -1;
+        }
+
+        int loaded = 0;
+
+        for (int i = 0; i < rows.length; i++) {
+            String[] fields = rows[i];
+
+            if (fields.length != 5)
+                continue;
+
+            try {
+                int id = Integer.parseInt(fields[0]);
+                String name = fields[1];
+                String phone = fields[2];
+                String plate = fields[3];
+
+                VehicleType type = CsvHelper.parseVehicleType(fields[4]);
+
+                IDriver driver = new Driver(
+                    id, name, phone, plate, type
+                );
+
+                if (addDriver(driver))
+                    loaded++;
+
+            } catch (IllegalArgumentException e) {
+                // Skip invalid records.
+            }
+        }
+
+        return loaded;
     }
 
+    // Adds a driver if their ID and vehicle plate are unique.
     public boolean addDriver(IDriver driver) {
-        throw new UnsupportedOperationException("TODO (Person C): addDriver");
+        if (driver == null)
+            return false;
+
+        if (driversById.findKey(driver.getId()))
+            return false;
+
+        if (driversByPlate.findKey(driver.getVehiclePlate()))
+            return false;
+
+        indexDriver(driver);
+
+        return true;
     }
 
+    // Searches for a driver using their ID.
     public IDriver searchDriverById(int driverId) {
-        throw new UnsupportedOperationException("TODO (Person C): searchDriverById");
+        if (driversById.findKey(driverId))
+            return driversById.retrieve();
+
+        return null;
     }
 
-    public LinkedList<IDriver> searchDriversByVehicleType(VehicleType vehicleType) {
-        throw new UnsupportedOperationException("TODO (Person C): searchDriversByVehicleType");
+    // Returns all drivers with the requested vehicle type, sorted by ID.
+    public LinkedList<IDriver> searchDriversByVehicleType(
+            VehicleType vehicleType) {
+
+        if (vehicleType == null)
+            return new LinkedList<IDriver>();
+
+        return IndexHelper.getAll(driversByType, vehicleType);
     }
 
+    // Returns all drivers sorted by ID.
     public LinkedList<IDriver> getAllDrivers() {
-        throw new UnsupportedOperationException("TODO (Person C): getAllDrivers");
+        return driversById.inOrder();
     }
 
+    // Removes a driver and all rides assigned to that driver.
     public boolean removeDriver(int driverId) {
-        throw new UnsupportedOperationException("TODO (Person C): removeDriver");
+        IDriver driver = searchDriverById(driverId);
+
+        if (driver == null)
+            return false;
+
+        // Get a separate list before cancelling the rides.
+        LinkedList<IRide> rides = driver.getSchedule().inOrder();
+
+        if (!rides.empty()) {
+            rides.findFirst();
+
+            while (true) {
+                IRide ride = rides.retrieve();
+
+                cancelRide(ride.getRideId());
+
+                if (rides.last())
+                    break;
+
+                rides.findNext();
+            }
+        }
+
+        unindexDriver(driver);
+
+        return true;
     }
 
-    public LinkedList<IDriver> findAvailableDrivers(ITimeSlot timeSlot, VehicleType vehicleType) {
-        throw new UnsupportedOperationException("TODO (Person C): findAvailableDrivers");
+    // Finds drivers of the requested type who have no overlapping ride.
+    // Results are sorted by driver ID.
+    public LinkedList<IDriver> findAvailableDrivers(
+            ITimeSlot timeSlot, VehicleType vehicleType) {
+
+        LinkedList<IDriver> available =
+            new LinkedList<IDriver>();
+
+        if (timeSlot == null || vehicleType == null)
+            return available;
+
+        LinkedList<IDriver> drivers =
+            searchDriversByVehicleType(vehicleType);
+
+        if (drivers.empty())
+            return available;
+
+        drivers.findFirst();
+
+        while (true) {
+            IDriver driver = drivers.retrieve();
+
+            if (!driver.getSchedule().findKey(timeSlot))
+                available.insert(driver);
+
+            if (drivers.last())
+                break;
+
+            drivers.findNext();
+        }
+
+        return available;
     }
 
+    // Returns the number of nodes visited when searching the rider ID index.
     public int nbKeyCompRiderById(int riderId) {
-        throw new UnsupportedOperationException("TODO (Person C): nbKeyCompRiderById");
+        return ridersById.nbKeyComp(riderId);
     }
 
+    // Returns the number of keys in the requested index.
     public int indexSize(IndexName index) {
-        throw new UnsupportedOperationException("TODO (Person C): indexSize");
+        if (index == null)
+            return 0;
+
+        switch (index) {
+            case RIDERS_BY_ID:
+                return ridersById.size();
+
+            case RIDERS_BY_NAME:
+                return ridersByName.size();
+
+            case RIDERS_BY_HOME_CITY:
+                return ridersByCity.size();
+
+            case DRIVERS_BY_ID:
+                return driversById.size();
+
+            case DRIVERS_BY_PLATE:
+                return driversByPlate.size();
+
+            case DRIVERS_BY_VEHICLE_TYPE:
+                return driversByType.size();
+
+            case RIDES_BY_ID:
+                return ridesById.size();
+
+            case RIDES_BY_PICKUP_LOCATION:
+                return ridesByPickupLocation.size();
+
+            case RIDES_BY_PICKUP_TIME:
+                return ridesByPickupTime.size();
+
+            default:
+                return 0;
+        }
     }
 
+    // Returns the height of the requested index.
+    // For nested BST indexes, the outer BST height is returned.
     public int indexHeight(IndexName index) {
-        throw new UnsupportedOperationException("TODO (Person C): indexHeight");
+        if (index == null)
+            return 0;
+
+        switch (index) {
+            case RIDERS_BY_ID:
+                return ridersById.height();
+
+            case RIDERS_BY_NAME:
+                return ridersByName.height();
+
+            case RIDERS_BY_HOME_CITY:
+                return ridersByCity.height();
+
+            case DRIVERS_BY_ID:
+                return driversById.height();
+
+            case DRIVERS_BY_PLATE:
+                return driversByPlate.height();
+
+            case DRIVERS_BY_VEHICLE_TYPE:
+                return driversByType.height();
+
+            case RIDES_BY_ID:
+                return ridesById.height();
+
+            case RIDES_BY_PICKUP_LOCATION:
+                return ridesByPickupLocation.height();
+
+            case RIDES_BY_PICKUP_TIME:
+                return ridesByPickupTime.height();
+
+            default:
+                return 0;
+        }
     }
-}
