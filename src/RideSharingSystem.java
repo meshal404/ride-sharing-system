@@ -52,14 +52,13 @@ public class RideSharingSystem implements IRideSharingSystem {
         {
             String[] f = rows[i];
 
-            // layout: id, firstName, lastName, email, phoneNumber, homeCity
-            if (f.length < 6)
+            // layout: id, fullname, email, phoneNumber, homeCity
+            if (f.length < 5)
                 continue; // not correct, skip it
 
             try 
             {
-                String fullName = f[1] + " " + f[2];
-                IRider rider = new Rider(Integer.parseInt(f[0]), fullName, f[3], f[4], f[5]);
+                IRider rider = new Rider(Integer.parseInt(f[0]), f[1], f[2], f[3], f[4]);
 
                 if (addRider(rider))
                     loaded++; // duplicate IDs are skipped
