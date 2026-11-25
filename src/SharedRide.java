@@ -1,73 +1,42 @@
 /*
-  A carpool ride that can carry several riders; each rider appears at most
-  once
+  A carpool ride that can carry several riders. The participants are stored
+  in a BST keyed by rider ID, so each rider appears at most once and
+  add / remove / lookup cost O(h).
  */
 public class SharedRide extends Ride implements ISharedRide {
 
-    private final LinkedList<IRider> participants;
-
-    /* Creates a shared ride with no participants yet; add them with addParticipant. */
-    public SharedRide(String pickupLocation, IDateTime pickupTime, IDateTime dropoffTime,
-                      String dropoffLocation, IDriver driver) {
-        super(pickupLocation, pickupTime, dropoffTime, dropoffLocation, driver);
-        participants = new LinkedList<>();
-    }
+    private final IBST<Integer, IRider> participants;
 
     /*
-      Returns a copy of the participant list, in the order they were added.
-      The copy's cursor is on the first element (check empty() before retrieve())
+      Creates a shared ride with no participants yet; add them with addParticipant.
+
+      throws IllegalArgumentException if the common ride fields are invalid (see Ride)
      */
+    public SharedRide(int rideId, String pickupLocation, String dropoffLocation,
+                      ITimeSlot timeSlot, IDriver driver) throws IllegalArgumentException {
+        super(rideId, pickupLocation, dropoffLocation, timeSlot, driver);
+        participants = new BST<Integer, IRider>();
+    }
+
+    /* Returns the participants sorted by rider ID (a new list; changing it does not affect the ride). */
     @Override
     public LinkedList<IRider> getParticipants() {
-        LinkedList<IRider> copy = new LinkedList<>();
-        if (!participants.empty()) {
-            participants.findFirst();
-            while (true) {
-                copy.insert(participants.retrieve()); // insert appends after the cursor, keeping order
-                if (participants.last()) {
-                    break;
-                }
-                participants.findNext();
-            }
-        }
-        copy.findFirst();
-        return copy;
+        return participants.inOrder();
     }
 
-    /* Adds a rider at the end; returns false if the rider is null or already on the ride*/
+    /* Adds a rider; returns false if the rider is null or already on the ride. */
     @Override
     public boolean addParticipant(IRider rider) {
-        if (rider == null || hasRider(rider.getId())) {
+        if (rider == null) {
             return false;
         }
-        if (!participants.empty()) {
-            // insert() adds after the cursor, so move the cursor to the last node first
-            participants.findFirst();
-            while (!participants.last()) {
-                participants.findNext();
-            }
-        }
-        participants.insert(rider);
-        return true;
+        return participants.insert(rider.getId(), rider);
     }
 
-    /* Removes the participant with the given ID; returns true if found*/
+    /* Removes the participant with the given ID; returns false if there is none. */
     @Override
     public boolean removeParticipantById(int riderId) {
-        if (participants.empty()) {
-            return false;
-        }
-        participants.findFirst();
-        while (true) {
-            if (participants.retrieve().getId() == riderId) {
-                participants.remove();
-                return true;
-            }
-            if (participants.last()) {
-                return false;
-            }
-            participants.findNext();
-        }
+        return participants.removeKey(riderId);
     }
 
     @Override
@@ -75,22 +44,10 @@ public class SharedRide extends Ride implements ISharedRide {
         return participants.empty();
     }
 
-    /* True if a rider with this ID is on the ride */
+    /* True if a rider with this ID is on the ride. */
     @Override
     public boolean hasRider(int riderId) {
-        if (participants.empty()) {
-            return false;
-        }
-        participants.findFirst();
-        while (true) {
-            if (participants.retrieve().getId() == riderId) {
-                return true;
-            }
-            if (participants.last()) {
-                return false;
-            }
-            participants.findNext();
-        }
+        return participants.findKey(riderId);
     }
 
     @Override
@@ -98,19 +55,21 @@ public class SharedRide extends Ride implements ISharedRide {
         return "SHARED";
     }
 
+    /* Lists the participants as "Riders: name (ID x), name (ID y), ...". */
     @Override
     protected String describeRiders() {
         StringBuilder sb = new StringBuilder("Riders: ");
-        if (!participants.empty()) {
-            participants.findFirst();
+        LinkedList<IRider> list = participants.inOrder();
+        if (!list.empty()) {
+            list.findFirst();
             while (true) {
-                IRider r = participants.retrieve();
+                IRider r = list.retrieve();
                 sb.append(r.getName()).append(" (ID ").append(r.getId()).append(")");
-                if (participants.last()) {
+                if (list.last()) {
                     break;
                 }
                 sb.append(", ");
-                participants.findNext();
+                list.findNext();
             }
         }
         return sb.toString();
