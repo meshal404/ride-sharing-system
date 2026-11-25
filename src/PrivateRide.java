@@ -1,22 +1,17 @@
-/* A ride with exactly one rider. */
+/* A ride with exactly one rider. Immutable: the rider is set only in the constructor. */
 public class PrivateRide extends Ride implements IPrivateRide {
 
-    private IRider rider;
+    private final IRider rider;
 
-    /* Creates a private ride for one rider. */
-    public PrivateRide(String pickupLocation, IDateTime pickupTime, IDateTime dropoffTime,
-                       String dropoffLocation, IRider rider, IDriver driver) {
-        super(pickupLocation, pickupTime, dropoffTime, dropoffLocation, driver);
-        setRider(rider);
-    }
+    /*
+      Creates a private ride for one rider.
 
-    @Override
-    public IRider getRider() {
-        return rider;
-    }
-
-    @Override
-    public final void setRider(IRider rider) throws IllegalArgumentException {
+      throws IllegalArgumentException if the rider is null or the
+                common ride fields are invalid (see Ride)
+     */
+    public PrivateRide(int rideId, String pickupLocation, String dropoffLocation,
+                       ITimeSlot timeSlot, IRider rider, IDriver driver) throws IllegalArgumentException {
+        super(rideId, pickupLocation, dropoffLocation, timeSlot, driver);
         if (rider == null) {
             throw new IllegalArgumentException("A private ride needs a rider.");
         }
@@ -24,8 +19,14 @@ public class PrivateRide extends Ride implements IPrivateRide {
     }
 
     @Override
+    public IRider getRider() {
+        return rider;
+    }
+
+    /* True if the given ID is the ID of this ride's rider. */
+    @Override
     public boolean hasRider(int riderId) {
-        return rider != null && rider.getId() == riderId;
+        return rider.getId() == riderId;
     }
 
     @Override
