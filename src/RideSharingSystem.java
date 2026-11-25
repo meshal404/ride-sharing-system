@@ -161,42 +161,371 @@ public class RideSharingSystem implements IRideSharingSystem {
     }
 
     // ================================================================ PERSON B: rides
-    public int loadRidesFromCSV(String ridesFilePath) {
-        throw new UnsupportedOperationException("TODO (Person B): loadRidesFromCSV");
+
+    // ---- index helpers: every add / delete of a ride goes through these two methods ----
+
+    /* Adds the ride to the three ride indexes (by ID, by pickup location, by pickup time). */
+    private void indexRide(IRide ride)
+    {
+        ridesById.insert(ride.getRideId(), ride);
+        IndexHelper.addToIndex(ridesByPickupLocation, ride.getPickupLocation(), ride.getRideId(), ride);
+        IndexHelper.addToIndex(ridesByPickupTime, ride.getTimeSlot().getStart(), ride.getRideId(), ride);
     }
 
+    /* Removes the ride from the three ride indexes. */
+    private void unindexRide(IRide ride)
+    {
+        ridesById.removeKey(ride.getRideId());
+        IndexHelper.removeFromIndex(ridesByPickupLocation, ride.getPickupLocation(), ride.getRideId());
+        IndexHelper.removeFromIndex(ridesByPickupTime, ride.getTimeSlot().getStart(), ride.getRideId());
+    }
+
+    /*
+      Deletes a ride everywhere: from the three ride indexes, from the schedule
+      of its driver and from the schedule of every rider on it.
+      Used by cancelRide, removeRider and removeDriver.
+     */
+    private void deleteRide(IRide ride)
+    {
+        ITimeSlot slot = ride.getTimeSlot();
+
+        unindexRide(ride);
+        ride.getDriver().getSchedule().removeKey(slot);
+
+        if (ride instanceof IPrivateRide)
+        {
+            ((IPrivateRide) ride).getRider().getSchedule().removeKey(slot);
+        }
+        else if (ride instanceof ISharedRide)
+        {
+            // getParticipants() returns a new list, so the ride is not modified while we walk it
+            LinkedList<IRider> riders = ((ISharedRide) ride).getParticipants();
+
+            if (!riders.empty())
+            {
+                riders.findFirst();
+
+                while (true)
+                {
+                    riders.retrieve().getSchedule().removeKey(slot);
+
+                    if (riders.last())
+                        break;
+
+                    riders.findNext();
+                }
+            }
+        }
+    }
+
+    /* Returns true if the text is not null and has at least one non-blank character. */
+    private boolean isValidLocation(String location)
+    {
+        return location != null && !location.trim().isEmpty();
+    }
+
+    /* Appends every element of src to the end of dest (dest keeps its order). */
+    private <T> void appendAll(LinkedList<T> dest, LinkedList<T> src)
+    {
+        if (src.empty())
+            return;
+
+        src.findFirst();
+
+        while (true)
+        {
+            dest.insert(src.retrieve()); // insert goes after the current node, i.e. at the end
+            if (src.last())
+                break;
+
+            src.findNext();
+        }
+    }
+
+    /*
+      Loads rides from a CSV file without header:
+      rideType,pickupLocation,pickupDateTime,dropoffDateTime,dropoffLocation,driverId,riderIds
+      rideType is PRIVATE or SHARED; shared rider IDs are separated by ';'.
+      Each line is scheduled in file order, so the first valid line gets ride ID 1, etc.
+      Lines that cannot be parsed or scheduled are skipped.
+      Returns the number of rides scheduled, or -1 if the file cannot be opened.
+     */
+    public int loadRidesFromCSV(String ridesFilePath)
+    {
+        String[][] rows;
+
+        try
+        {
+            rows = CsvHelper.readRows(ridesFilePath);
+        }
+        catch (IOException e)
+        {
+            return -1; // file cannot be opened
+        }
+
+        int loaded = 0;
+
+        for (int i = 0; i < rows.length; i++)
+        {
+            String[] f = rows[i];
+
+            if (f.length < 7)
+                continue; // missing columns, skip it
+
+            try
+            {
+                String type = f[0].trim();
+                IDateTime start = DateTime.parse(f[2]);
+                IDateTime end = DateTime.parse(f[3]);
+                ITimeSlot slot = new TimeSlot(start, end); // throws if start is not before end
+                int driverId = Integer.parseInt(f[5].trim());
+                int[] riderIds = CsvHelper.parseRiderIds(f[6]);
+                int rideId = -1;
+
+                // NOTE: the file lists the driver BEFORE the riders, the schedule methods take riders first
+                if (type.equalsIgnoreCase("PRIVATE") && riderIds.length == 1)
+                    rideId = schedulePrivateRide(f[1], f[4], slot, riderIds[0], driverId);
+
+                else if (type.equalsIgnoreCase("SHARED"))
+                    rideId = scheduleSharedRide(f[1], f[4], slot, riderIds, driverId);
+
+                if (rideId != -1)
+                    loaded++;
+            }
+            catch (IllegalArgumentException e)
+            {
+                // covers bad numbers, bad date/times and an invalid time slot
+            }
+        }
+
+        return loaded;
+    }
+
+    /*
+      Schedules a private ride. Everything is validated first (locations, time slot,
+      rider and driver exist, no overlap with the rider's or the driver's schedule);
+      only then is anything changed. A ride that starts exactly when another ends
+      is not a conflict.
+      Returns the new ride ID, or -1 (nothing changed) if a check fails.
+     */
     public int schedulePrivateRide(String pickupLocation, String dropoffLocation,
-                                   ITimeSlot timeSlot, int riderId, int driverId) {
-        throw new UnsupportedOperationException("TODO (Person B): schedulePrivateRide");
+                                   ITimeSlot timeSlot, int riderId, int driverId)
+    {
+        // 1. validate everything
+        if (!isValidLocation(pickupLocation) || !isValidLocation(dropoffLocation) || timeSlot == null)
+            return -1;
+
+        if (!ridersById.findKey(riderId) || !driversById.findKey(driverId))
+            return -1;
+
+        IRider rider = ridersById.retrieve();
+        IDriver driver = driversById.retrieve();
+
+        // an overlapping ride makes findKey true (ITimeSlot.compareTo is 0 for overlapping slots)
+        if (rider.getSchedule().findKey(timeSlot) || driver.getSchedule().findKey(timeSlot))
+            return -1;
+
+        // 2. nothing can fail now: create the ride and update every index and schedule
+        IRide ride = new PrivateRide(nextRideId, pickupLocation, dropoffLocation, timeSlot, rider, driver);
+
+        indexRide(ride);
+        driver.getSchedule().insert(timeSlot, ride);
+        rider.getSchedule().insert(timeSlot, ride);
+
+        return nextRideId++;
     }
 
+    /*
+      Schedules a shared ride. riderIds must hold at least two IDs, without duplicates,
+      and every rider and the driver must exist and be free during the time slot.
+      If any check fails nothing is changed.
+      Returns the new ride ID, or -1.
+     */
     public int scheduleSharedRide(String pickupLocation, String dropoffLocation,
-                                  ITimeSlot timeSlot, int[] riderIds, int driverId) {
-        throw new UnsupportedOperationException("TODO (Person B): scheduleSharedRide");
+                                  ITimeSlot timeSlot, int[] riderIds, int driverId)
+    {
+        // 1. validate everything
+        if (!isValidLocation(pickupLocation) || !isValidLocation(dropoffLocation) || timeSlot == null)
+            return -1;
+
+        if (riderIds == null || riderIds.length < 2 || !driversById.findKey(driverId))
+            return -1;
+
+        IDriver driver = driversById.retrieve();
+
+        if (driver.getSchedule().findKey(timeSlot))
+            return -1;
+
+        // the temporary BST detects duplicate IDs (insert returns false) and keeps the riders found
+        IBST<Integer, IRider> riders = new BST<Integer, IRider>();
+
+        for (int i = 0; i < riderIds.length; i++)
+        {
+            if (!ridersById.findKey(riderIds[i]))
+                return -1; // unknown rider
+
+            IRider rider = ridersById.retrieve();
+
+            if (rider.getSchedule().findKey(timeSlot))
+                return -1; // rider is busy
+
+            if (!riders.insert(rider.getId(), rider))
+                return -1; // duplicate rider ID
+        }
+
+        // 2. nothing can fail now: create the ride and update every index and schedule
+        SharedRide ride = new SharedRide(nextRideId, pickupLocation, dropoffLocation, timeSlot, driver);
+
+        LinkedList<IRider> list = riders.inOrder(); // at least two riders, so never empty
+        list.findFirst();
+
+        while (true)
+        {
+            IRider rider = list.retrieve();
+
+            ride.addParticipant(rider);
+            rider.getSchedule().insert(timeSlot, ride);
+
+            if (list.last())
+                break;
+
+            list.findNext();
+        }
+
+        indexRide(ride);
+        driver.getSchedule().insert(timeSlot, ride);
+
+        return nextRideId++;
     }
 
-    public boolean cancelRide(int rideId) {
-        throw new UnsupportedOperationException("TODO (Person B): cancelRide");
+    /* Cancels a ride: deletes it from every index and schedule. False if the ID does not exist. */
+    public boolean cancelRide(int rideId)
+    {
+        if (!ridesById.findKey(rideId))
+            return false;
+
+        deleteRide(ridesById.retrieve());
+
+        return true;
     }
 
-    public LinkedList<IRide> searchRidesByPickupLocation(String pickupLocation) {
-        throw new UnsupportedOperationException("TODO (Person B): searchRidesByPickupLocation");
+    /* Rides from the pickup location, sorted by ride ID (inner BST is keyed by ride ID). */
+    public LinkedList<IRide> searchRidesByPickupLocation(String pickupLocation)
+    {
+        return IndexHelper.getAll(ridesByPickupLocation, pickupLocation);
     }
 
-    public LinkedList<IRide> searchRidesByRiderName(String riderName) {
-        throw new UnsupportedOperationException("TODO (Person B): searchRidesByRiderName");
+    /*
+      Rides of every rider with this full name, found through the riders' schedules.
+      A shared ride can appear in the schedule of several riders with the same name, so a
+      temporary BST keyed by ride ID removes the duplicates and sorts the result.
+     */
+    public LinkedList<IRide> searchRidesByRiderName(String riderName)
+    {
+        IBST<Integer, IRide> found = new BST<Integer, IRide>();
+        LinkedList<IRider> riders = searchRidersByName(riderName);
+
+        if (!riders.empty())
+        {
+            riders.findFirst();
+
+            while (true)
+            {
+                LinkedList<IRide> rides = riders.retrieve().getSchedule().inOrder();
+
+                if (!rides.empty())
+                {
+                    rides.findFirst();
+
+                    while (true)
+                    {
+                        IRide ride = rides.retrieve();
+                        found.insert(ride.getRideId(), ride); // false (ignored) if already there
+
+                        if (rides.last())
+                            break;
+
+                        rides.findNext();
+                    }
+                }
+
+                if (riders.last())
+                    break;
+
+                riders.findNext();
+            }
+        }
+
+        return found.inOrder();
     }
 
-    public LinkedList<IRider> getSharedRideParticipants(int rideId) {
-        throw new UnsupportedOperationException("TODO (Person B): getSharedRideParticipants");
+    /* Participants of a shared ride sorted by ID; empty if the ride does not exist or is private. */
+    public LinkedList<IRider> getSharedRideParticipants(int rideId)
+    {
+        if (ridesById.findKey(rideId))
+        {
+            IRide ride = ridesById.retrieve();
+
+            if (ride instanceof ISharedRide)
+                return ((ISharedRide) ride).getParticipants();
+        }
+
+        return new LinkedList<IRider>();
     }
 
-    public LinkedList<IRide> getAllRidesAlphabetically() {
-        throw new UnsupportedOperationException("TODO (Person B): getAllRidesAlphabetically");
+    /*
+      All rides alphabetically by pickup location. The outer BST is ordered by location and
+      each inner BST by ride ID, so an in-order walk gives ties sorted by ride ID. O(n), no sorting.
+     */
+    public LinkedList<IRide> getAllRidesAlphabetically()
+    {
+        LinkedList<IRide> result = new LinkedList<IRide>();
+        LinkedList<IBST<Integer, IRide>> groups = ridesByPickupLocation.inOrder();
+
+        if (!groups.empty())
+        {
+            groups.findFirst();
+
+            while (true)
+            {
+                appendAll(result, groups.retrieve().inOrder());
+
+                if (groups.last())
+                    break;
+
+                groups.findNext();
+            }
+        }
+
+        return result;
     }
 
-    public LinkedList<IRide> searchRidesByPickupTimeRange(IDateTime from, IDateTime to) {
-        throw new UnsupportedOperationException("TODO (Person B): searchRidesByPickupTimeRange");
+    /* Rides with from <= pickup date/time <= to, sorted by pickup date/time, then ride ID. */
+    public LinkedList<IRide> searchRidesByPickupTimeRange(IDateTime from, IDateTime to)
+    {
+        LinkedList<IRide> result = new LinkedList<IRide>();
+
+        if (from == null || to == null || from.compareTo(to) > 0)
+            return result; // nothing can be in an empty or invalid range
+
+        LinkedList<IBST<Integer, IRide>> groups = ridesByPickupTime.rangeSearch(from, to);
+
+        if (!groups.empty())
+        {
+            groups.findFirst();
+
+            while (true)
+            {
+                appendAll(result, groups.retrieve().inOrder());
+
+                if (groups.last())
+                    break;
+
+                groups.findNext();
+            }
+        }
+
+        return result;
     }
 
     // ============================================== PERSON C: drivers and statistics
